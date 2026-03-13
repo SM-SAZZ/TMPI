@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Трёхмерные массивы – спиральная галактика</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <h1>Работа с трёхмерными массивами в графике</h1>
+        <p class="subtitle">
+          Модель: трёхмерная спиральная галактика (звёзды вращаются по орбитам)
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="controls-panel">
+          <h2>Настройки модели галактики</h2>
+
+          <!-- НАСТРОЙКИ КОЛИЧЕСТВА И РАЗМЕРА ЗВЁЗД -->
+          <div class="control-group">
+            <label for="ballsCount">
+              Количество звёзд:
+              <span id="ballsCountValue"></span>
+            </label>
+            <input
+              id="ballsCount"
+              type="range"
+              min="1"
+              max="60"
+              step="1"
+            />
+          </div>
+
+          <div class="control-group">
+            <label for="ballSize">
+              Размер звёзд:
+              <span id="ballSizeValue"></span>
+            </label>
+            <input
+              id="ballSize"
+              type="range"
+              min="3"
+              max="30"
+              step="1"
+            />
+          </div>
+
+          <!-- НАСТРОЙКИ СКОРОСТИ ВРАЩЕНИЯ (масштабирует скорость обхода орбит в трёхмерном массиве) -->
+          <div class="control-group">
+            <label for="speed">
+              Скорость вращения орбит:
+              <span id="speedValue"></span>
+            </label>
+            <input
+              id="speed"
+              type="range"
+              min="0.2"
+              max="3"
+              step="0.1"
+            />
+          </div>
+
+          <!-- КНОПКИ, КОТОРЫЕ МЕНЯЮТ ХАРАКТЕР ВРАЩЕНИЯ ГАЛАКТИКИ -->
+          <h3>Вращение галактики</h3>
+          <div class="buttons-grid buttons-grid--rotation">
+            <button data-mode="cw" class="dir-btn">По часовой</button>
+            <button data-mode="ccw" class="dir-btn">Против часовой</button>
+            <button data-mode="chaos" class="dir-btn">Хаотично</button>
+          </div>
+
+          <div class="control-group control-group--inline">
+            <button id="playPauseBtn">Пауза</button>
+            <button id="resetBtn">Сброс</button>
+          </div>
+
+          <details class="info">
+            <summary>Как здесь используется трёхмерный массив?</summary>
+            <p>
+              Состояние всех звёзд хранится в трёхмерном массиве
+              <code>balls3D[i][0..2]</code>, где:
+            </p>
+            <ul>
+              <li><code>[i][0]</code> – координата X</li>
+              <li><code>[i][1]</code> – координата Y</li>
+              <li><code>[i][2]</code> – координата Z</li>
+            </ul>
+            <p>
+              Так мы рассматриваем массив как «базу данных» звёзд в трёхмерном
+              пространстве спиральной галактики: каждая запись массива — это
+              точка‑звезда в пространстве.
+            </p>
+          </details>
+        </section>
+
+        <section class="canvas-panel">
+          <div class="canvas-wrapper">
+            <canvas id="scene"></canvas>
+            <div class="canvas-overlay">
+              <div>
+                Точка в центре — ядро галактики. Звёзды движутся по спиральным
+                орбитам вокруг ядра, образуя трёхмерный диск.
+              </div>
+              <div id="stats"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>Тема: трёхмерные массивы. Вариант: спиральная галактика в 3D.</span>
+      </footer>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
