@@ -2,72 +2,31 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <title>Трёхмерные массивы – спиральная галактика</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Солнечная система в 3D</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="page">
       <header class="header">
-        <h1>Работа с трёхмерными массивами в графике</h1>
+        <p class="eyebrow">3D-визуализация</p>
+        <h1>Солнечная система с планетами на собственных орбитах</h1>
         <p class="subtitle">
-          Модель: трёхмерная спиральная галактика (звёзды вращаются по орбитам)
+          Солнце находится в центре, а восемь основных планет движутся по
+          индивидуальным траекториям.
         </p>
       </header>
 
       <main class="layout">
         <section class="controls-panel">
-          <h2>Настройки модели галактики</h2>
+          <h2>Параметры сцены</h2>
 
-          <!-- НАСТРОЙКИ КОЛИЧЕСТВА И РАЗМЕРА ЗВЁЗД -->
-          <div class="control-group">
-            <label for="ballsCount">
-              Количество звёзд:
-              <span id="ballsCountValue"></span>
-            </label>
-            <input
-              id="ballsCount"
-              type="range"
-              min="1"
-              max="60"
-              step="1"
-            />
-          </div>
-
-          <div class="control-group">
-            <label for="ballSize">
-              Размер звёзд:
-              <span id="ballSizeValue"></span>
-            </label>
-            <input
-              id="ballSize"
-              type="range"
-              min="3"
-              max="30"
-              step="1"
-            />
-          </div>
-
-          <!-- НАСТРОЙКИ СКОРОСТИ ВРАЩЕНИЯ (масштабирует скорость обхода орбит в трёхмерном массиве) -->
           <div class="control-group">
             <label for="speed">
-              Скорость вращения орбит:
+              Скорость движения
               <span id="speedValue"></span>
             </label>
-            <input
-              id="speed"
-              type="range"
-              min="0.2"
-              max="3"
-              step="0.1"
-            />
-          </div>
-
-          <!-- КНОПКИ, КОТОРЫЕ МЕНЯЮТ ХАРАКТЕР ВРАЩЕНИЯ ГАЛАКТИКИ -->
-          <h3>Вращение галактики</h3>
-          <div class="buttons-grid buttons-grid--rotation">
-            <button data-mode="cw" class="dir-btn">По часовой</button>
-            <button data-mode="ccw" class="dir-btn">Против часовой</button>
-            <button data-mode="chaos" class="dir-btn">Хаотично</button>
+            <input id="speed" type="range" min="0.2" max="3" step="0.1" />
           </div>
 
           <div class="control-group control-group--inline">
@@ -75,41 +34,57 @@
             <button id="resetBtn">Сброс</button>
           </div>
 
+          <section class="legend">
+            <h3>Объекты системы</h3>
+            <p class="legend-note">
+              Наведите на планету или карточку слева, чтобы увидеть её подпись.
+              Нажмите на планету или её карточку, чтобы отправить в неё
+              астероид.
+            </p>
+            <ul id="planetLegend" class="planet-legend"></ul>
+          </section>
+
           <details class="info">
-            <summary>Как здесь используется трёхмерный массив?</summary>
+            <summary>Как хранится сцена</summary>
             <p>
-              Состояние всех звёзд хранится в трёхмерном массиве
-              <code>balls3D[i][0..2]</code>, где:
+              Координаты каждой планеты лежат в массиве
+              <code>planetPositions[i][0..2]</code>, где:
             </p>
             <ul>
-              <li><code>[i][0]</code> – координата X</li>
-              <li><code>[i][1]</code> – координата Y</li>
-              <li><code>[i][2]</code> – координата Z</li>
+              <li><code>[i][0]</code> - координата X</li>
+              <li><code>[i][1]</code> - координата Y</li>
+              <li><code>[i][2]</code> - координата Z</li>
             </ul>
             <p>
-              Так мы рассматриваем массив как «базу данных» звёзд в трёхмерном
-              пространстве спиральной галактики: каждая запись массива — это
-              точка‑звезда в пространстве.
+              Для каждой планеты отдельно задаются размер, цвет, наклон орбиты,
+              скорость движения и собственная траектория вокруг Солнца.
             </p>
           </details>
         </section>
 
         <section class="canvas-panel">
           <div class="canvas-wrapper">
-            <canvas id="scene"></canvas>
+            <canvas
+              id="scene"
+              aria-label="Интерактивная сцена солнечной системы"
+            ></canvas>
             <div class="canvas-overlay">
               <div>
-                Точка в центре — ядро галактики. Звёзды движутся по спиральным
-                орбитам вокруг ядра, образуя трёхмерный диск.
+                Перетаскивайте сцену мышью, колесом меняйте масштаб. Клик по
+                планете или её карточке запускает астероид, повторный клик
+                восстанавливает её.
               </div>
-              <div id="stats"></div>
+              <div id="stats" aria-live="polite"></div>
             </div>
           </div>
         </section>
       </main>
 
       <footer class="footer">
-        <span>Тема: трёхмерные массивы. Вариант: спиральная галактика в 3D.</span>
+        <span>
+          Сцена: Солнце в центре, основные планеты с однотонной заливкой и
+          отдельными орбитами.
+        </span>
       </footer>
     </div>
 
