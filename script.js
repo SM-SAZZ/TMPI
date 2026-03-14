@@ -11,7 +11,7 @@ const planetLegend = document.getElementById("planetLegend");
 // Scene configuration and projection limits.
 const FOCAL_LENGTH = 6.4;
 const DEFAULT_CAMERA_DISTANCE = 6.4;
-const DEFAULT_VIEW = { x: -24, y: 32 };
+const DEFAULT_VIEW = { x: 0, y: 0 };
 const SCENE_SCALE_RATIO = 0.29;
 const BODY_WORLD_SCALE = 0.08;
 const ORBIT_SEGMENTS = 144;
