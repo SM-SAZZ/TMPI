@@ -23,8 +23,10 @@ const CAMERA_DISTANCE_MAX = 13.5;
 const SUN_KEY = "sun";
 const DAMAGE_COLOR = "#ff3b30";
 const HEAL_COLOR = "#22c55e";
+const HEAL_FILL_COLOR = "#4ade80";
 const IMPACT_BURST_COLOR = "#ff8a1f";
-const TARGET_RETICLE_COLOR = "#ff3b30";
+const IMPACT_BURST_FILL_COLOR = "#ffb347";
+const TARGET_RETICLE_COLOR = DAMAGE_COLOR;
 
 const sun = {
   key: SUN_KEY,
@@ -175,7 +177,12 @@ function getSceneScale(width, height) {
   return SCENE_SCALE_RATIO * Math.min(width, height);
 }
 
+const hexToRgbaCache = new Map();
+
 function hexToRgba(hex, alpha) {
+  const key = `${hex}|${alpha}`;
+  if (hexToRgbaCache.has(key)) return hexToRgbaCache.get(key);
+
   const value = hex.replace("#", "");
   const normalized =
     value.length === 3
@@ -189,7 +196,9 @@ function hexToRgba(hex, alpha) {
   const g = parseInt(normalized.slice(2, 4), 16);
   const b = parseInt(normalized.slice(4, 6), 16);
 
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  const result = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  hexToRgbaCache.set(key, result);
+  return result;
 }
 
 function setActiveBodyKey(nextKey) {
@@ -280,8 +289,7 @@ function projectSphere(x, y, z, size, camera) {
   };
 }
 
-function resizeCanvasToDisplaySize() {
-  const rect = canvas.getBoundingClientRect();
+function resizeCanvasToDisplaySize(rect) {
   const dpr = window.devicePixelRatio || 1;
   const width = Math.round(rect.width * dpr);
   const height = Math.round(rect.height * dpr);
@@ -391,8 +399,15 @@ function updateEffects(dt) {
 }
 
 // Rendering is split into small passes so effects and hit testing share data.
-function drawBackground(camera) {
-  const background = ctx.createRadialGradient(
+let cachedBackground = null;
+let cachedBgWidth = 0;
+let cachedBgHeight = 0;
+
+function getBackground(camera) {
+  if (cachedBackground && cachedBgWidth === camera.width && cachedBgHeight === camera.height) {
+    return cachedBackground;
+  }
+  const bg = ctx.createRadialGradient(
     camera.width * 0.52,
     camera.height * 0.5,
     0,
@@ -400,12 +415,17 @@ function drawBackground(camera) {
     camera.height * 0.5,
     Math.max(camera.width, camera.height) * 0.75
   );
+  bg.addColorStop(0, "#16213c");
+  bg.addColorStop(0.38, "#09101f");
+  bg.addColorStop(1, "#02040a");
+  cachedBackground = bg;
+  cachedBgWidth = camera.width;
+  cachedBgHeight = camera.height;
+  return bg;
+}
 
-  background.addColorStop(0, "#16213c");
-  background.addColorStop(0.38, "#09101f");
-  background.addColorStop(1, "#02040a");
-
-  ctx.fillStyle = background;
+function drawBackground(camera) {
+  ctx.fillStyle = getBackground(camera);
   ctx.fillRect(0, 0, camera.width, camera.height);
 
   for (const star of state.backgroundStars) {
@@ -621,7 +641,7 @@ function drawPlanetBursts(camera) {
     const intensity = 1 - burst.age / burst.duration;
     const radius = projected.radius * (1.8 + intensity * 1.7);
     const ringColor = burst.mode === "heal" ? HEAL_COLOR : IMPACT_BURST_COLOR;
-    const fillColor = burst.mode === "heal" ? "#4ade80" : "#ffb347";
+    const fillColor = burst.mode === "heal" ? HEAL_FILL_COLOR : IMPACT_BURST_FILL_COLOR;
 
     ctx.save();
     ctx.strokeStyle = hexToRgba(ringColor, 0.22 + intensity * 0.55);
@@ -666,6 +686,8 @@ function buildBodies(camera) {
       camera
     );
 
+    const displayColor = getPlanetDisplayColor(planet.index);
+
     return {
       ...planet,
       type: "planet",
@@ -674,8 +696,8 @@ function buildBodies(camera) {
       depth: projection.depth,
       radius: projection.radius,
       hitRadius: Math.max(projection.radius + 4, 10),
-      color: getPlanetDisplayColor(planet.index),
-      shadowColor: hexToRgba(getPlanetDisplayColor(planet.index), 0.62),
+      color: displayColor,
+      shadowColor: hexToRgba(displayColor, 0.62),
       shadowBlur: 14,
     };
   });
@@ -684,9 +706,9 @@ function buildBodies(camera) {
 }
 
 function drawScene() {
-  resizeCanvasToDisplaySize();
-
   const rect = canvas.getBoundingClientRect();
+  resizeCanvasToDisplaySize(rect);
+
   const camera = buildCamera(rect.width, rect.height);
 
   ctx.clearRect(0, 0, camera.width, camera.height);
@@ -699,10 +721,9 @@ function drawScene() {
   drawAsteroidImpacts(camera);
 
   const bodies = buildBodies(camera);
-  state.projectedBodies = bodies;
   state.hitTestBodies = [...bodies].sort((left, right) => right.depth - left.depth);
-
   bodies.sort((left, right) => left.depth - right.depth);
+  state.projectedBodies = bodies;
   for (const body of bodies) {
     drawPlanetBody(body);
   }
@@ -717,13 +738,23 @@ function refreshLabels() {
   speedValue.textContent = `${speedSlider.value}x`;
 }
 
-function updateStats() {
+let lastStatsString = "";
+let lastStatsTime = 0;
+
+function updateStats(timestamp) {
+  if (timestamp - lastStatsTime < 100) return;
+  lastStatsTime = timestamp;
+
   const zoomValue = (DEFAULT_CAMERA_DISTANCE / state.cameraDistance).toFixed(2);
-  statsEl.textContent = `${planets.length} планет | Скорость ${state.globalSpeedScale.toFixed(
+  const next = `${planets.length} планет | Скорость ${state.globalSpeedScale.toFixed(
     2
   )}x | Zoom ${zoomValue}x | Камера X=${state.rotateXDeg.toFixed(
     0
   )}° Y=${state.rotateYDeg.toFixed(0)}° Z=${state.cameraDistance.toFixed(2)}`;
+  if (next !== lastStatsString) {
+    statsEl.textContent = next;
+    lastStatsString = next;
+  }
 }
 
 function renderLegend() {
@@ -838,12 +869,13 @@ function findBodyHit(screenX, screenY) {
   return null;
 }
 
-function getCanvasCoordinates(event) {
-  const rect = canvas.getBoundingClientRect();
+let cachedCanvasRect = null;
 
+function getCanvasCoordinates(event) {
+  if (!cachedCanvasRect) cachedCanvasRect = canvas.getBoundingClientRect();
   return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
+    x: event.clientX - cachedCanvasRect.left,
+    y: event.clientY - cachedCanvasRect.top,
   };
 }
 
@@ -986,9 +1018,7 @@ function initUI() {
     playPauseBtn.textContent = state.isPaused ? "Продолжить" : "Пауза";
   });
 
-  resetBtn.addEventListener("click", () => {
-    resetScene();
-  });
+  resetBtn.addEventListener("click", resetScene);
 }
 
 function animate(timestamp) {
@@ -1002,9 +1032,11 @@ function animate(timestamp) {
   }
 
   drawScene();
-  updateStats();
+  updateStats(timestamp);
   requestAnimationFrame(animate);
 }
+
+window.addEventListener("resize", () => { cachedCanvasRect = null; });
 
 window.addEventListener("load", () => {
   state.backgroundStars = createBackgroundStars(BACKGROUND_STAR_COUNT);
