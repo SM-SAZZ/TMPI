@@ -8,19 +8,40 @@ const resetBtn = document.getElementById("resetBtn");
 const statsEl = document.getElementById("stats");
 const planetLegend = document.getElementById("planetLegend");
 
-// Scene configuration and projection limits.
+// --- Проекция и камера ---
+// FOCAL_LENGTH задаёт «фокусное расстояние» перспективы: чем больше,
+// тем меньше искажение по краям сцены.
+// SCENE_SCALE_RATIO масштабирует мировые координаты в пиксели относительно
+// короткой стороны холста.
+// BODY_WORLD_SCALE переводит размер тела в мировых единицах в пиксельный радиус.
 const FOCAL_LENGTH = 6.4;
 const DEFAULT_CAMERA_DISTANCE = 6.4;
 const DEFAULT_VIEW = { x: 0, y: 0 };
 const SCENE_SCALE_RATIO = 0.29;
 const BODY_WORLD_SCALE = 0.08;
+
+// --- Геометрия орбит и фон ---
+// ORBIT_SEGMENTS — количество отрезков ломаной линии для каждой орбиты.
+// 144 даёт плавную эллипсовидную кривую без видимых углов.
 const ORBIT_SEGMENTS = 144;
 const BACKGROUND_STAR_COUNT = 180;
+
+// --- Управление камерой ---
+// DRAG_THRESHOLD — минимальный путь курсора в пикселях, при котором
+// отпускание кнопки считается завершением перетаскивания, а не кликом.
 const DRAG_THRESHOLD = 6;
 const CAMERA_ROTATE_SENSITIVITY = 0.35;
 const CAMERA_DISTANCE_MIN = 4.1;
 const CAMERA_DISTANCE_MAX = 13.5;
+
+// --- Идентификаторы тел ---
 const SUN_KEY = "sun";
+
+// --- Цвета эффектов ---
+// DAMAGE/HEAL — состояния планеты. TARGET_RETICLE_COLOR совпадает с
+// DAMAGE_COLOR намеренно: прицел сигнализирует об угрозе тем же цветом.
+// HEAL_FILL_COLOR и IMPACT_BURST_FILL_COLOR — более светлые оттенки для
+// заливки вспышки (кольцо рисуется насыщенным цветом, центр — светлым).
 const DAMAGE_COLOR = "#ff3b30";
 const HEAL_COLOR = "#22c55e";
 const HEAL_FILL_COLOR = "#4ade80";
@@ -127,30 +148,33 @@ const planets = createPlanets([
   },
 ]);
 
+// Всё изменяемое состояние сцены собрано в одном объекте, чтобы функции
+// не хранили собственных скрытых переменных и сброс был тривиальным.
 const state = {
-  globalSpeedScale: 1,
-  rotateXDeg: DEFAULT_VIEW.x,
-  rotateYDeg: DEFAULT_VIEW.y,
-  cameraDistance: DEFAULT_CAMERA_DISTANCE,
-  isPaused: false,
-  globalTime: 0,
-  lastTime: 0,
-  activeBodyKey: null,
-  dragDistance: 0,
-  isDragging: false,
-  lastPointerX: 0,
+  globalSpeedScale: 1,       // множитель скорости анимации (из слайдера)
+  rotateXDeg: DEFAULT_VIEW.x, // угол поворота камеры вокруг горизонтальной оси (градусы)
+  rotateYDeg: DEFAULT_VIEW.y, // угол поворота камеры вокруг вертикальной оси (градусы)
+  cameraDistance: DEFAULT_CAMERA_DISTANCE, // расстояние от камеры до начала координат
+  isPaused: false,           // true — анимация остановлена, рендер продолжается
+  globalTime: 0,             // накопленное игровое время (секунды с учётом скорости)
+  lastTime: 0,               // timestamp предыдущего кадра (мс, из performance.now)
+  activeBodyKey: null,       // ключ тела под курсором или в фокусе легенды (или null)
+  dragDistance: 0,           // суммарный путь курсора с момента нажатия (px)
+  isDragging: false,         // true в процессе перетаскивания сцены
+  lastPointerX: 0,           // координаты курсора предыдущего события mousemove
   lastPointerY: 0,
-  backgroundStars: [],
-  planetPositions: planets.map(() => [0, 0, 0]),
-  planetDamaged: planets.map(() => false),
-  asteroidImpacts: [],
-  planetBursts: [],
-  projectedBodies: [],
-  hitTestBodies: [],
-  legendElements: new Map(),
+  backgroundStars: [],       // массив статичных звёзд фона (создаётся один раз при загрузке)
+  planetPositions: planets.map(() => [0, 0, 0]), // текущие мировые координаты [x,y,z] каждой планеты
+  planetDamaged: planets.map(() => false),       // флаги «планета повреждена» по индексу
+  asteroidImpacts: [],       // активные полёты астероидов (прогресс, траектория, размер)
+  planetBursts: [],          // активные вспышки при ударе и восстановлении
+  projectedBodies: [],       // тела отсортированные спереди назад (для поиска активного)
+  hitTestBodies: [],         // тела отсортированные сзади наперёд (для hit-test кликов)
+  legendElements: new Map(), // ключ тела → DOM-элемент карточки легенды
 };
 
-// Utility helpers used across animation, projection and effects.
+// ─── Утилиты ────────────────────────────────────────────────────────────────
+
 function toRadians(value) {
   return (value * Math.PI) / 180;
 }
@@ -159,24 +183,31 @@ function randInRange(min, max) {
   return min + Math.random() * (max - min);
 }
 
+// Линейная интерполяция: t=0 → start, t=1 → end.
 function lerp(start, end, t) {
   return start + (end - start) * t;
 }
 
+// Уникальный строковый ключ для каждой планеты, используемый в state и DOM.
 function bodyKeyForPlanet(index) {
   return `planet:${index}`;
 }
 
+// Возвращает индекс планеты из ключа вида "planet:N" или -1 для Солнца/null.
 function planetIndexFromKey(key) {
   return typeof key === "string" && key.startsWith("planet:")
     ? Number(key.slice("planet:".length))
     : -1;
 }
 
+// Масштаб сцены вычисляется по меньшей стороне холста, чтобы сцена
+// не выходила за края ни при каком соотношении сторон.
 function getSceneScale(width, height) {
   return SCENE_SCALE_RATIO * Math.min(width, height);
 }
 
+// Результаты кешируются: цвета планет фиксированы, поэтому уже с первого кадра
+// большинство вызовов сводится к одному поиску в Map без parseInt и шаблонов.
 const hexToRgbaCache = new Map();
 
 function hexToRgba(hex, alpha) {
@@ -201,6 +232,8 @@ function hexToRgba(hex, alpha) {
   return result;
 }
 
+// Централизованная точка смены активного тела: ранний выход предотвращает
+// лишние перерисовки DOM при повторных событиях с тем же ключом.
 function setActiveBodyKey(nextKey) {
   if (state.activeBodyKey === nextKey) {
     return;
@@ -219,7 +252,10 @@ function createPlanets(definitions) {
   }));
 }
 
-// Orbit geometry is static, so it is cached once and only projected per frame.
+// ─── Орбитальная геометрия ───────────────────────────────────────────────────
+
+// Точки орбиты статичны: они строятся один раз при инициализации и затем
+// только проецируются на экран каждый кадр без пересчёта геометрии.
 function buildOrbitPoints(planet) {
   return Array.from({ length: ORBIT_SEGMENTS + 1 }, (_, index) => {
     const angle = (index / ORBIT_SEGMENTS) * Math.PI * 2;
@@ -227,6 +263,11 @@ function buildOrbitPoints(planet) {
   });
 }
 
+// Вычисляет мировую позицию точки на орбите по заданному углу.
+// Алгоритм: эллипс строится в локальной плоскости (orbitA — большая полуось,
+// orbitB — малая), затем поворачивается на угол восходящего узла (node)
+// вокруг оси Y и на угол наклона (inclination) вокруг новой оси X.
+// Результат — координаты [x, y, z] в мировом пространстве.
 function computeOrbitPoint(planet, angle) {
   const localX = planet.orbitA * Math.cos(angle);
   const localZ = planet.orbitB * Math.sin(angle);
@@ -239,7 +280,10 @@ function computeOrbitPoint(planet, angle) {
   return [x1, -z1 * Math.sin(inclination), z1 * Math.cos(inclination)];
 }
 
-// The camera transform is calculated once per frame and reused everywhere.
+// ─── Камера и проекция ───────────────────────────────────────────────────────
+
+// Значения тригонометрических функций вычисляются один раз за кадр и
+// сохраняются в объекте камеры, который передаётся во все функции проекции.
 function buildCamera(width, height) {
   const angleY = toRadians(state.rotateYDeg);
   const angleX = toRadians(state.rotateXDeg);
@@ -255,6 +299,12 @@ function buildCamera(width, height) {
   };
 }
 
+// Проецирует мировую точку (x, y, z) на экран с перспективой.
+// Шаг 1 — поворот вокруг Y (горизонтальное вращение сцены мышью).
+// Шаг 2 — поворот вокруг X (вертикальный наклон).
+// Шаг 3 — перспективное деление: perspective = f / (d - rz), где d —
+//   расстояние камеры. Возвращает экранные координаты и rz-глубину
+//   (нужна для сортировки тел back-to-front).
 function projectPoint(x, y, z, camera) {
   let rx = x * camera.cosY + z * camera.sinY;
   let rz = -x * camera.sinY + z * camera.cosY;
@@ -275,8 +325,10 @@ function projectPoint(x, y, z, camera) {
   };
 }
 
-// Размер сферы зависит только от глубины центра, а не от того, под каким
-// углом камера смотрит на мировую ось X/Y/Z.
+// Радиус тела на экране зависит только от его глубины (rz-компоненты центра),
+// а не от направления взгляда. Это корректно для сферы: проекция сферы при
+// перспективной камере — окружность, радиус которой определяется одним лишь
+// перспективным коэффициентом в точке центра.
 function projectSphere(x, y, z, size, camera) {
   const center = projectPoint(x, y, z, camera);
 
@@ -289,6 +341,10 @@ function projectSphere(x, y, z, size, camera) {
   };
 }
 
+// rect передаётся снаружи (из drawScene), а не вычисляется внутри,
+// чтобы избежать второго вызова getBoundingClientRect() за кадр.
+// ctx.setTransform масштабирует контекст на DPR, после чего все
+// координаты рисования можно указывать в CSS-пикселях.
 function resizeCanvasToDisplaySize(rect) {
   const dpr = window.devicePixelRatio || 1;
   const width = Math.round(rect.width * dpr);
@@ -311,20 +367,32 @@ function createBackgroundStars(count) {
   }));
 }
 
+// ─── Обновление состояния ────────────────────────────────────────────────────
+
+// Пересчитывает мировые координаты всех планет на текущий globalTime.
+// phase — начальный угол планеты на орбите, orbitSpeed — угловая скорость.
 function updatePlanetPositions() {
   state.planetPositions = planets.map((planet) =>
     computeOrbitPoint(planet, planet.phase + state.globalTime * planet.orbitSpeed)
   );
 }
 
+// Возвращает цвет планеты с учётом её состояния: повреждённая планета
+// отображается красным независимо от своего базового цвета.
 function getPlanetDisplayColor(index) {
   return state.planetDamaged[index] ? DAMAGE_COLOR : planets[index].color;
 }
 
+// ─── Логика астероидов ───────────────────────────────────────────────────────
+
+// Проверяет, летит ли уже астероид к указанной планете, чтобы не запускать
+// второй при повторном быстром клике.
 function hasPendingImpact(targetIndex) {
   return state.asteroidImpacts.some((impact) => impact.targetIndex === targetIndex);
 }
 
+// Случайная точка вылета астероида — на кольцеобразной полосе за орбитой
+// Нептуна, чтобы астероид всегда летел к планете «снаружи» системы.
 function getAsteroidStartPoint() {
   const angle = randInRange(0, Math.PI * 2);
   const radius = randInRange(3.05, 3.85);
@@ -337,14 +405,15 @@ function launchAsteroid(targetIndex) {
   state.asteroidImpacts.push({
     targetIndex,
     start: getAsteroidStartPoint(),
-    progress: 0,
-    duration: randInRange(0.75, 1.15),
-    size: randInRange(0.05, 0.08),
-    trailOffset: randInRange(0.08, 0.16),
+    progress: 0,                          // 0 → 1 за время duration
+    duration: randInRange(0.75, 1.15),    // секунды полёта
+    size: randInRange(0.05, 0.08),        // радиус ядра в мировых единицах
+    trailOffset: randInRange(0.08, 0.16), // насколько «хвост» отстаёт от головы (в progress)
     color: "#d7d2ca",
   });
 }
 
+// mode: "damage" — оранжевая вспышка при ударе, "heal" — зелёная при восстановлении.
 function createPlanetBurst(targetIndex, mode) {
   state.planetBursts.push({
     targetIndex,
@@ -354,6 +423,8 @@ function createPlanetBurst(targetIndex, mode) {
   });
 }
 
+// При восстановлении отменяем все летящие к планете астероиды и
+// текущие вспышки, затем запускаем новую зелёную вспышку исцеления.
 function restorePlanet(targetIndex) {
   state.planetDamaged[targetIndex] = false;
   state.asteroidImpacts = state.asteroidImpacts.filter(
@@ -366,7 +437,8 @@ function restorePlanet(targetIndex) {
   syncLegendState();
 }
 
-// И одно и то же действие вызывается и с канваса, и из легенды.
+// Единая точка входа для клика по планете — вызывается и с холста, и из легенды.
+// Если планета повреждена — восстанавливает её, иначе — запускает астероид.
 function togglePlanetImpact(targetIndex) {
   if (state.planetDamaged[targetIndex]) {
     restorePlanet(targetIndex);
@@ -378,6 +450,9 @@ function togglePlanetImpact(targetIndex) {
   }
 }
 
+// Продвигает все активные эффекты на dt секунд.
+// Астероид удаляется из массива как только progress достигает 1,
+// в этот момент планета помечается повреждённой и запускается вспышка удара.
 function updateEffects(dt) {
   state.asteroidImpacts = state.asteroidImpacts.filter((impact) => {
     impact.progress += dt / impact.duration;
@@ -398,7 +473,12 @@ function updateEffects(dt) {
   });
 }
 
-// Rendering is split into small passes so effects and hit testing share data.
+// ─── Рендер ─────────────────────────────────────────────────────────────────
+// Рендер разбит на несколько проходов, чтобы эффекты и hit-test
+// могли переиспользовать уже спроецированные данные из buildBodies().
+
+// Градиент фона кешируется и пересоздаётся только при изменении размера холста,
+// избегая выделения объекта CanvasGradient на каждом из 60 кадров в секунду.
 let cachedBackground = null;
 let cachedBgWidth = 0;
 let cachedBgHeight = 0;
@@ -551,6 +631,10 @@ function drawActiveLabel(camera) {
   ctx.restore();
 }
 
+// Возвращает мировую позицию астероида в момент progress (0–1).
+// extraOffset сдвигает позицию назад по траектории — используется для
+// рендера «хвоста» (tail), который чуть отстаёт от головы (head).
+// Квадратичный easing (t²) даёт ускорение при подлёте к планете.
 function getImpactWorldPoint(impact, extraOffset = 0) {
   const target = state.planetPositions[impact.targetIndex];
   const t = Math.max(0, Math.min(1, impact.progress - extraOffset));
@@ -658,6 +742,8 @@ function drawPlanetBursts(camera) {
   }
 }
 
+// Собирает плоские объекты-тела с уже вычисленными экранными координатами,
+// радиусами и цветами. Результат используется в рендере и hit-тесте.
 function buildBodies(camera) {
   const sunProjection = projectSphere(0, 0, 0, sun.size, camera);
   const sunBody = {
@@ -705,6 +791,17 @@ function buildBodies(camera) {
   return [sunBody, ...planetBodies];
 }
 
+// Главный рендер-пас за кадр. Порядок прохода:
+//   1. Фон и звёзды.
+//   2. Орбиты (рисуются под телами).
+//   3. Астероиды в полёте (под телами, чтобы не перекрывать их).
+//   4. Тела (Солнце + планеты) — отсортированы спереди назад (front-to-back),
+//      чтобы ближние перекрывали дальние. hitTestBodies — обратная сортировка
+//      (back-to-front), чтобы кликнуть на ближнее тело при перекрытии.
+//      state.projectedBodies присваивается после сортировки — порядок однозначен.
+//   5. Прицелы на планетах с летящими астероидами.
+//   6. Вспышки при ударе и восстановлении.
+//   7. Всплывающая подпись активного тела.
 function drawScene() {
   const rect = canvas.getBoundingClientRect();
   resizeCanvasToDisplaySize(rect);
@@ -733,11 +830,15 @@ function drawScene() {
   drawActiveLabel(camera);
 }
 
-// UI updates and events stay separated from rendering code.
+// ─── UI и события ────────────────────────────────────────────────────────────
+// Весь код взаимодействия с DOM вынесен сюда отдельно от логики рендера.
+
 function refreshLabels() {
   speedValue.textContent = `${speedSlider.value}x`;
 }
 
+// Обновляет строку статистики не чаще 10 раз/с и только при изменении
+// содержимого — избегаем лишних DOM-мутаций при неподвижной камере.
 let lastStatsString = "";
 let lastStatsTime = 0;
 
@@ -757,6 +858,9 @@ function updateStats(timestamp) {
   }
 }
 
+// Строит DOM-список легенды через DocumentFragment, чтобы единственный раз
+// вызвать reflow при добавлении фрагмента в документ. Элементы сохраняются
+// в Map для быстрого обновления без повторного обхода DOM в syncLegendState.
 function renderLegend() {
   state.legendElements = new Map();
   planetLegend.textContent = "";
@@ -790,6 +894,8 @@ function renderLegend() {
   syncLegendState();
 }
 
+// Синхронизирует CSS-классы карточек с текущим состоянием за один проход
+// без создания новых DOM-узлов. Вызывается из setActiveBodyKey и updateEffects.
 function syncLegendState() {
   state.legendElements.forEach((element, key) => {
     const planetIndex = planetIndexFromKey(key);
@@ -859,6 +965,8 @@ function resetScene() {
   syncLegendState();
 }
 
+// Обходит тела от ближних к дальним (hitTestBodies отсортированы back-to-front),
+// поэтому первое совпадение — всегда самое ближнее к зрителю тело в точке клика.
 function findBodyHit(screenX, screenY) {
   for (const body of state.hitTestBodies) {
     if (Math.hypot(screenX - body.x, screenY - body.y) <= body.hitRadius) {
@@ -869,6 +977,9 @@ function findBodyHit(screenX, screenY) {
   return null;
 }
 
+// rect кешируется, чтобы не вызывать принудительный reflow на каждый
+// mousemove (сотни раз в секунду при перетаскивании). Кеш сбрасывается
+// при изменении размера окна через слушатель на window в конце файла.
 let cachedCanvasRect = null;
 
 function getCanvasCoordinates(event) {
@@ -1021,6 +1132,11 @@ function initUI() {
   resetBtn.addEventListener("click", resetScene);
 }
 
+// ─── Главный цикл ────────────────────────────────────────────────────────────
+
+// dt ограничен сверху 30 мс (примерно 33 кадра/с), чтобы при потере фокуса
+// браузером или тормозном кадре эффекты не «прыгали» на большой промежуток.
+// timestamp передаётся в updateStats, избавляя от лишнего performance.now().
 function animate(timestamp) {
   const dt = Math.min((timestamp - state.lastTime) / 1000, 0.03);
   state.lastTime = timestamp;
@@ -1036,6 +1152,8 @@ function animate(timestamp) {
   requestAnimationFrame(animate);
 }
 
+// При изменении размера окна сбрасываем кеш rect холста,
+// чтобы следующий mousemove взял актуальное положение элемента.
 window.addEventListener("resize", () => { cachedCanvasRect = null; });
 
 window.addEventListener("load", () => {
